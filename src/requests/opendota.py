@@ -1,4 +1,5 @@
 import httpx
+from pydantic import ValidationError
 
 from src.models import Match
 
@@ -17,6 +18,11 @@ async def get_last_match(client: httpx.AsyncClient, player_id: int) -> Match:
         response = await client.get(url)
         response.raise_for_status()
         payload = response.json()
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code
+        raise OpenDotaRequestError(
+            f"Failed to get last match for player {player_id}. Status code: {status_code}."
+        ) from exc
     except (httpx.HTTPError, ValueError) as exc:
         raise OpenDotaRequestError(f"Failed to get last match for player {player_id}.") from exc
 
@@ -25,7 +31,7 @@ async def get_last_match(client: httpx.AsyncClient, player_id: int) -> Match:
 
     try:
         return Match.model_validate(payload[0])
-    except (IndexError, TypeError, ValueError) as exc:
+    except ValidationError as exc:
         raise OpenDotaRequestError(f"Failed to parse last match for player {player_id}.") from exc
 
 
@@ -35,6 +41,11 @@ async def get_match_details(client: httpx.AsyncClient, match_id: int) -> dict:
         response = await client.get(url)
         response.raise_for_status()
         payload = response.json()
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code
+        raise OpenDotaRequestError(
+            f"Failed to get match details for match {match_id}. Status code: {status_code}."
+        ) from exc
     except (httpx.HTTPError, ValueError) as exc:
         raise OpenDotaRequestError(f"Failed to get match details for match {match_id}.") from exc
 
