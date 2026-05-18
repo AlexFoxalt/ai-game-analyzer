@@ -33,7 +33,7 @@ async def main(
 ) -> None:
     try:
         match = await opendota.get_last_match(client, PLAYER_ID)
-    except httpx.HTTPError as exc:
+    except opendota.OpenDotaRequestError as exc:
         log.warning(f"Failed to fetch last match: {exc!s}")
         return
 
@@ -48,7 +48,7 @@ async def main(
     storage.add_match(match)
     try:
         match_details = await opendota.get_match_details(client, match.match_id)
-    except httpx.HTTPError as exc:
+    except opendota.OpenDotaRequestError as exc:
         log.warning(f"Failed to fetch match details for {match.match_id}: {exc}")
         return
 
