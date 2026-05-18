@@ -1,0 +1,12 @@
+services:
+  app:
+    build:
+      context: .
+    container_name: ai-game-analyzer
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./reports:/app/reports
+      - ./data.json:/app/data.json
+    command: ["python", "-u", "main.py"]
