@@ -7,7 +7,7 @@ from openai import AsyncOpenAI
 from scheduler.asyncio import Scheduler
 from scheduler.trigger import Monday
 
-from src.ai import generate_russian_match_report
+from src.ai import generate_en_match_report, translate_match_report
 from src.discord_bot import DiscordMessenger, create_discord_messenger
 from src.kb import refresh_kb_data as refresh_kb_data_files
 from src.logger import log
@@ -65,7 +65,7 @@ async def main(
         player_id_discord_id=PLAYER_ID_DISCORD_ID,
     )
     heroes_section = f"Герои:\n{tracked_heroes_text}" if tracked_heroes_text else ""
-    discord_message_id: int | None = None
+    discord_message_id: int
 
     log.info(f"Found [{len(filtered_players_data)} / {len(PLAYERS)}] players in the match.")
     try:
@@ -73,32 +73,32 @@ async def main(
             f"🟡 Новый матч `{match.match_id}`\nИгроки: `{len(filtered_players_data)}/{len(PLAYERS)}`\n{heroes_section}"
         )
     except Exception as exc:
-        log.warning(f"Failed to send Discord status message: {exc}")
+        raise RuntimeError(f"Failed to send initial Discord status message: {exc}") from exc
+    if discord_message_id is None:
+        raise RuntimeError("Discord messenger returned None as message ID.")
 
     if not matched_friend_ids:
         log.info("No tracked friends found in this match. Skipping LLM analysis.")
-        if discord_message_id is not None:
-            try:
-                await discord_messenger.append_to_message(
-                    discord_message_id,
-                    "\n⚪ Нет отслеживаемых игроков. Пропускаю ИИ-анализ.",
-                )
-            except Exception as exc:
-                log.warning(f"Failed to update Discord status message: {exc}")
-        return
-
-    log.info(f"Generating AI match analysis via {AI_MODEL}...")
-    if discord_message_id is not None:
         try:
             await discord_messenger.append_to_message(
                 discord_message_id,
-                f"\n🤖 ИИ анализирует (`{AI_MODEL}`)...",
+                "\n⚪ Нет отслеживаемых игроков. Пропускаю ИИ-анализ.",
             )
         except Exception as exc:
             log.warning(f"Failed to update Discord status message: {exc}")
+        return
+
+    log.info(f"Generating AI match analysis via {AI_MODEL}...")
+    try:
+        await discord_messenger.append_to_message(
+            discord_message_id,
+            f"\n🤖 ИИ анализирует (`{AI_MODEL}`)...",
+        )
+    except Exception as exc:
+        log.warning(f"Failed to update Discord status message: {exc}")
 
     async with discord_messenger.typing_status():
-        translated_text = await generate_russian_match_report(
+        en_report = await generate_en_match_report(
             ai=ai,
             model=AI_MODEL,
             target_player_ids=PLAYERS,
@@ -115,6 +115,25 @@ async def main(
                 "objectives": match_details.get("objectives"),
             },
         )
+        try:
+            await discord_messenger.append_to_message(
+                discord_message_id,
+                "\n📥 **Отчет по матчу получен**.",
+            )
+        except Exception as exc:
+            log.warning(f"Failed to update Discord status message: {exc}")
+        translated_text = await translate_match_report(
+            ai=ai,
+            model=AI_MODEL,
+            text=en_report,
+        )
+        try:
+            await discord_messenger.append_to_message(
+                discord_message_id,
+                "\n🌐 **Отчет по матчу переведен**.",
+            )
+        except Exception as exc:
+            log.warning(f"Failed to update Discord status message: {exc}")
 
     log.info("AI Agent match analysis is ready. Saving report...")
     report_dir = build_match_report_dir(match_id=match.match_id, match_start_time=match.start_time)
@@ -126,16 +145,15 @@ async def main(
         markdown_path=markdown_path,
         pdf_path=pdf_path,
     )
-    if discord_message_id is not None:
-        try:
-            await discord_messenger.append_to_message(
-                discord_message_id,
-                "\n✅ Готово. Страницы отчета прикреплены.",
-            )
-            image_paths = render_pdf_pages_to_png(pdf_path=pdf_path, output_dir=report_dir)
-            await discord_messenger.attach_images_to_message(discord_message_id, [str(path) for path in image_paths])
-        except Exception as exc:
-            log.warning(f"Failed to update Discord status message: {exc}")
+    try:
+        await discord_messenger.append_to_message(
+            discord_message_id,
+            "\n✅ Готово. Страницы отчета прикреплены.",
+        )
+        image_paths = render_pdf_pages_to_png(pdf_path=pdf_path, output_dir=report_dir)
+        await discord_messenger.attach_images_to_message(discord_message_id, [str(path) for path in image_paths])
+    except Exception as exc:
+        log.warning(f"Failed to update Discord status message: {exc}")
 
     log.info(f"Report saved: {markdown_path}")
     log.info(f"PDF saved: {pdf_path}")

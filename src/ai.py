@@ -150,7 +150,7 @@ async def translate_analysis_to_russian(ai: AsyncOpenAI, model: str, text: str) 
     return response.output_text.strip()
 
 
-async def generate_russian_match_report(
+async def generate_en_match_report(
     ai: AsyncOpenAI,
     model: str,
     target_player_ids: Iterable[int | str],
@@ -158,7 +158,7 @@ async def generate_russian_match_report(
     all_players_data: Sequence[dict[str, Any]],
     match_metadata: dict[str, Any] | None = None,
 ) -> str:
-    analysis_text = await generate_match_analysis(
+    return await generate_match_analysis(
         ai=ai,
         model=model,
         target_player_ids=target_player_ids,
@@ -166,5 +166,11 @@ async def generate_russian_match_report(
         all_players_data=all_players_data,
         match_metadata=match_metadata,
     )
-    translated_text = await translate_analysis_to_russian(ai=ai, model=model, text=analysis_text)
-    return translated_text or analysis_text
+
+
+async def translate_match_report(
+    ai: AsyncOpenAI,
+    model: str,
+    text: str,
+) -> str:
+    return await translate_analysis_to_russian(ai=ai, model=model, text=text)
