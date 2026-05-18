@@ -74,8 +74,6 @@ async def main(
         )
     except Exception as exc:
         raise RuntimeError(f"Failed to send initial Discord status message: {exc}") from exc
-    if discord_message_id is None:
-        raise RuntimeError("Discord messenger returned None as message ID.")
 
     if not matched_friend_ids:
         log.info("No tracked friends found in this match. Skipping LLM analysis.")
@@ -92,7 +90,7 @@ async def main(
     try:
         await discord_messenger.append_to_message(
             discord_message_id,
-            f"\n🤖 ИИ анализирует (`{AI_MODEL}`)...",
+            f"\n[1/4]🤖 ИИ анализирует (`{AI_MODEL}`)...",
         )
     except Exception as exc:
         log.warning(f"Failed to update Discord status message: {exc}")
@@ -118,7 +116,7 @@ async def main(
         try:
             await discord_messenger.append_to_message(
                 discord_message_id,
-                "\n📥 **Отчет по матчу получен**.",
+                "\n[2/4]📥 Отчет получен.",
             )
         except Exception as exc:
             log.warning(f"Failed to update Discord status message: {exc}")
@@ -130,7 +128,7 @@ async def main(
         try:
             await discord_messenger.append_to_message(
                 discord_message_id,
-                "\n🌐 **Отчет по матчу переведен**.",
+                "\n[3/4]🌐 Отчет переведен.",
             )
         except Exception as exc:
             log.warning(f"Failed to update Discord status message: {exc}")
@@ -148,7 +146,7 @@ async def main(
     try:
         await discord_messenger.append_to_message(
             discord_message_id,
-            "\n✅ Готово. Страницы отчета прикреплены.",
+            "\n[4/4]✅ Готово. Файлы прикреплены. Тренируйтесь!",
         )
         image_paths = render_pdf_pages_to_png(pdf_path=pdf_path, output_dir=report_dir)
         await discord_messenger.attach_images_to_message(discord_message_id, [str(path) for path in image_paths])
