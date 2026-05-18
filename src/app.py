@@ -165,6 +165,7 @@ async def start() -> None:
         timing=dt.timedelta(seconds=10),
         handle=main,
         args=(client, storage, ai, discord_messenger),
+        skip_missing=True,
     )
     sched.weekly(timing=Monday(dt.time(tzinfo=tz)), handle=refresh_kb_data, args=(client,))
 
