@@ -1,7 +1,7 @@
 COMPOSE := docker compose
 SERVICE := app
 
-.PHONY: build up down restart logs ps pull update
+.PHONY: build up down restart logs ps pull update redeploy
 
 build:
 	$(COMPOSE) build
@@ -25,3 +25,7 @@ pull:
 	$(COMPOSE) pull
 
 update: pull build up
+
+redeploy:
+	git pull
+	$(COMPOSE) up -d --build
