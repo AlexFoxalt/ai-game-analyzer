@@ -178,7 +178,7 @@ async def start() -> None:
     log.info("Discord bot startup task created.")
 
     sched.cyclic(
-        timing=dt.timedelta(seconds=10),
+        timing=dt.timedelta(seconds=30),
         handle=main,
         args=(client, storage, ai, discord_messenger),
         skip_missing=True,
