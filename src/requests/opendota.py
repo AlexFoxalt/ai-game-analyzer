@@ -24,7 +24,7 @@ async def get_last_match(client: httpx.AsyncClient, player_id: int) -> Match:
             f"Failed to get last match for player {player_id}. Status code: {status_code}."
         ) from exc
     except (httpx.HTTPError, ValueError) as exc:
-        raise OpenDotaRequestError(f"Failed to get last match for player {player_id}.") from exc
+        raise OpenDotaRequestError(f"Failed to get last match for player {player_id}. Error: {exc!s}") from exc
 
     if not payload:
         raise OpenDotaRequestError(f"No recent matches found for player {player_id}.")
