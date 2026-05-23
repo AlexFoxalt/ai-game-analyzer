@@ -9,9 +9,17 @@ from src.models import Match
 
 class DataStorage:
     def __init__(self, db_path: str | Path = "data.json") -> None:
-        self._db_path = Path(db_path)
+        self._db_path = self._resolve_db_path(Path(db_path))
         self._ensure_db_exists()
         self._normalize_db()
+
+    @staticmethod
+    def _resolve_db_path(path: Path) -> Path:
+        # Defensive fallback for container mounts: if a file path was mounted as a
+        # directory (e.g. ./data.json missing on host), store DB inside that directory.
+        if path.exists() and path.is_dir():
+            return path / "data.json"
+        return path
 
     def get_last_match_id(self) -> int | None:
         data = self._read_db()
