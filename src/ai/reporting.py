@@ -5,6 +5,7 @@ import os
 from collections.abc import Iterable, Sequence
 from typing import Any
 
+from langsmith import traceable
 from openai import AsyncOpenAI
 
 from src.ai.prompts import (
@@ -98,6 +99,7 @@ For EACH matched friend ID, include:
     ]
 
 
+@traceable(name="translate_analysis_to_russian")
 async def translate_analysis_to_russian(ai: AsyncOpenAI, model: str, text: str) -> str:
     response = await ai.responses.create(
         model=model,
@@ -110,6 +112,7 @@ async def translate_analysis_to_russian(ai: AsyncOpenAI, model: str, text: str) 
     return response.output_text.strip()
 
 
+@traceable(name="generate_en_match_report")
 async def generate_en_match_report(
     ai: AsyncOpenAI,
     model: str,
@@ -152,6 +155,7 @@ async def translate_match_report(
     return await translate_analysis_to_russian(ai=ai, model=model, text=text)
 
 
+@traceable(name="generate_match_overview")
 async def generate_match_overview(
     ai: AsyncOpenAI,
     model: str,

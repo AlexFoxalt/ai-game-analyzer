@@ -3,6 +3,7 @@ import datetime as dt
 import os
 
 import httpx
+from langsmith.wrappers import wrap_openai
 from openai import AsyncOpenAI
 from scheduler.asyncio import Scheduler
 from scheduler.trigger import Monday
@@ -217,7 +218,7 @@ async def start() -> None:
     tz = dt.UTC
     sched = Scheduler(tzinfo=tz)
     client = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0))
-    ai = AsyncOpenAI()
+    ai = wrap_openai(AsyncOpenAI())
     storage = DataStorage("data.json")
     discord_messenger = create_discord_messenger(
         bot_token=os.getenv("DISCORD_BOT_TOKEN"),
