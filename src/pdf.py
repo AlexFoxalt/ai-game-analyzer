@@ -63,10 +63,24 @@ def _resolve_font_family() -> tuple[str, str, str, str | None]:
         pdfmetrics.registerFont(TTFont(bold_name, bold_path))
         pdfmetrics.registerFont(TTFont(mono_name, mono_path))
         emoji_font_name: str | None = None
-        emoji_font_path = Path("C:\\Windows\\Fonts\\seguiemj.ttf")
-        if emoji_font_path.exists():
-            emoji_font_name = "SegoeUIEmoji"
-            pdfmetrics.registerFont(TTFont(emoji_font_name, str(emoji_font_path)))
+        emoji_candidates = [
+            ("SegoeUIEmoji", Path("C:\\Windows\\Fonts\\seguiemj.ttf")),
+            ("Symbola", Path("/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf")),
+            ("Symbola", Path("/usr/share/fonts/truetype/ancient-scripts/Symbola.ttf")),
+            ("NotoColorEmoji", Path("/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf")),
+            ("NotoEmoji", Path("/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf")),
+            ("NotoColorEmoji", Path("/usr/share/fonts/noto/NotoColorEmoji.ttf")),
+        ]
+        for candidate_name, candidate_path in emoji_candidates:
+            if not candidate_path.exists():
+                continue
+            try:
+                pdfmetrics.registerFont(TTFont(candidate_name, str(candidate_path)))
+                emoji_font_name = candidate_name
+                break
+            except Exception:
+                # Some color emoji fonts are not fully supported by ReportLab/TTFont.
+                continue
         return regular_name, bold_name, mono_name, emoji_font_name
 
     # Fallback still works for Latin text, but may not render Cyrillic.
