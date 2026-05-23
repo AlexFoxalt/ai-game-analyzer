@@ -83,12 +83,11 @@ For EACH matched friend ID, include:
 **How to Improve Next Games**
 - 0 to 3 bullets
 
-## MVP 🏆
-- Pick exactly one MVP from all players in this match and explain why in 2-4 bullets.
+## MVP
+- Pick exactly one MVP (Most Valuable Player) from all players in this match and explain why in 2-4 bullets.
 
-## Shit player 💀
+## Shit player
 - Pick exactly one Shit player (opposite of MVP) from all players in this match and explain why in 2-4 bullets.
-- Base it on lowest impact, biggest mistakes, poor itemization, bad positioning, feeding, or missed objectives.
 
 {user_rules}
 """.strip()
