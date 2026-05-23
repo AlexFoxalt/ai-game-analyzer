@@ -1,5 +1,8 @@
 import json
+from collections.abc import Iterable
 from pathlib import Path
+
+from pydantic import ValidationError
 
 from src.models import Match
 
@@ -25,8 +28,25 @@ class DataStorage:
     def upsert_match(self, match: Match) -> None:
         data = self._read_db()
         match_id = str(match.match_id)
-        data["matches"][match_id] = match.model_dump()
+        existing_match = data["matches"].get(match_id, {})
+        payload = Match.model_validate(match.model_dump(mode="json")).model_dump(mode="json")
+        if isinstance(existing_match, dict) and existing_match.get("overview") and payload.get("overview") is None:
+            payload["overview"] = existing_match["overview"]
+        data["matches"][match_id] = payload
         data["last_match_id"] = match.match_id
+        self._write_db(data)
+
+    def set_match_overview(self, match_id: int, overview: dict[str, str]) -> None:
+        data = self._read_db()
+        match_key = str(match_id)
+        match = data["matches"].get(match_key)
+        if not isinstance(match, dict):
+            raise KeyError(f"Match with id {match_id} was not found")
+        match["overview"] = {
+            str(player_id): text.strip()
+            for player_id, text in overview.items()
+            if isinstance(text, str) and text.strip()
+        }
         self._write_db(data)
 
     def get_match_by_id(self, match_id: int) -> dict:
@@ -35,6 +55,36 @@ class DataStorage:
         if match is None:
             raise KeyError(f"Match with id {match_id} was not found")
         return Match.model_validate(match).model_dump(mode="json")
+
+    def get_recent_player_overviews(
+        self,
+        player_ids: Iterable[int | str],
+        limit: int = 5,
+    ) -> dict[str, list[str]]:
+        data = self._read_db()
+        normalized_player_ids = [str(player_id) for player_id in player_ids]
+        result: dict[str, list[str]] = {player_id: [] for player_id in normalized_player_ids}
+        matches = []
+        for match_payload in data["matches"].values():
+            if not isinstance(match_payload, dict):
+                continue
+            start_time = match_payload.get("start_time")
+            start_time_int = start_time if isinstance(start_time, int) else 0
+            matches.append((start_time_int, match_payload))
+        matches.sort(key=lambda item: item[0], reverse=True)
+        for _, match_payload in matches:
+            overview = match_payload.get("overview")
+            if not isinstance(overview, dict):
+                continue
+            for player_id in normalized_player_ids:
+                if len(result[player_id]) >= limit:
+                    continue
+                text = overview.get(player_id)
+                if isinstance(text, str) and text.strip():
+                    result[player_id].append(text.strip())
+            if all(len(result[player_id]) >= limit for player_id in normalized_player_ids):
+                break
+        return {player_id: overviews for player_id, overviews in result.items() if overviews}
 
     def _ensure_db_exists(self) -> None:
         if self._db_path.exists():
@@ -62,6 +112,27 @@ class DataStorage:
 
         # Normalize keys to strings to keep stable upsert behavior.
         raw_data["matches"] = {str(key): value for key, value in raw_data["matches"].items()}
+        normalized_matches: dict[str, dict] = {}
+        for match_id, match_payload in raw_data["matches"].items():
+            if not isinstance(match_payload, dict):
+                continue
+            try:
+                normalized_match = Match.model_validate(match_payload).model_dump(mode="json")
+            except ValidationError:
+                continue
+            overview = normalized_match.get("overview")
+            if isinstance(overview, dict):
+                normalized_match["overview"] = {
+                    str(player_id): text.strip()
+                    for player_id, text in overview.items()
+                    if isinstance(text, str) and text.strip()
+                }
+            elif isinstance(overview, str):
+                normalized_match["overview"] = {"global": overview.strip()} if overview.strip() else None
+            else:
+                normalized_match["overview"] = None
+            normalized_matches[match_id] = normalized_match
+        raw_data["matches"] = normalized_matches
         return raw_data
 
     def _write_db(self, data: dict) -> None:

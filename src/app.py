@@ -7,7 +7,7 @@ from openai import AsyncOpenAI
 from scheduler.asyncio import Scheduler
 from scheduler.trigger import Monday
 
-from src.ai import generate_en_match_report, translate_match_report
+from src.ai.reporting import generate_en_match_report, generate_match_overview, translate_match_report
 from src.discord_bot import DiscordMessenger, create_discord_messenger
 from src.kb import refresh_kb_data as refresh_kb_data_files
 from src.logger import log
@@ -23,6 +23,23 @@ from src.utils import (
 
 PLAYER_ID, PLAYERS, PLAYER_ID_DISCORD_ID = load_player_config()
 AI_MODEL = "gpt-5.5"
+
+
+def _read_positive_int_env(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None or not raw_value.strip():
+        return default
+    try:
+        parsed = int(raw_value)
+        if parsed <= 0:
+            raise ValueError
+        return parsed
+    except ValueError:
+        log.warning(f"Invalid {name}='{raw_value}', fallback to {default}")
+        return default
+
+
+RECENT_MATCHES_CONTEXT_LIMIT = _read_positive_int_env("RECENT_MATCHES_CONTEXT_LIMIT", 5)
 
 
 async def main(
@@ -60,6 +77,15 @@ async def main(
     all_normalized_players_data = [NormalizedPlayerData.from_player_data(p) for p in players_data]
     tracked_normalized_players_data = [NormalizedPlayerData.from_player_data(p) for p in filtered_players_data]
     matched_friend_ids = [str(p.account_id) for p in filtered_players_data if p.account_id is not None]
+    tracked_players_context = [
+        {
+            "account_id": str(player.account_id),
+            "personaname": player.personaname,
+            "hero_name": player.hero_name,
+        }
+        for player in tracked_normalized_players_data
+        if player.account_id is not None
+    ]
     tracked_heroes_text = tracked_players_heroes_text(
         tracked_players_data=tracked_normalized_players_data,
         player_id_discord_id=PLAYER_ID_DISCORD_ID,
@@ -87,6 +113,15 @@ async def main(
         return
 
     log.info(f"Generating AI match analysis via {AI_MODEL}...")
+    recent_overviews_by_player = storage.get_recent_player_overviews(
+        player_ids=matched_friend_ids,
+        limit=RECENT_MATCHES_CONTEXT_LIMIT,
+    )
+    recent_games_briefs = {
+        player_id: "\n".join(f"- {overview}" for overview in overviews)
+        for player_id, overviews in recent_overviews_by_player.items()
+        if overviews
+    } or None
     try:
         await discord_messenger.append_to_message(
             discord_message_id,
@@ -112,6 +147,7 @@ async def main(
                 "game_mode": "turbo",  # always turbo
                 "objectives": match_details.get("objectives"),
             },
+            recent_games_briefs=recent_games_briefs,
         )
         try:
             await discord_messenger.append_to_message(
@@ -155,6 +191,21 @@ async def main(
 
     log.info(f"Report saved: {markdown_path}")
     log.info(f"PDF saved: {pdf_path}")
+    # post-process report
+    try:
+        overview = await generate_match_overview(
+            ai=ai,
+            model=AI_MODEL,
+            en_report=en_report,
+            tracked_players=tracked_players_context,
+        )
+        if overview:
+            storage.set_match_overview(match.match_id, overview)
+            log.info(f"Match overview saved for {match.match_id}")
+        else:
+            log.warning(f"No valid player overviews generated for {match.match_id}")
+    except Exception as exc:
+        log.warning(f"Failed to generate/save match overview for {match.match_id}: {exc}")
 
 
 async def refresh_kb_data(client: httpx.AsyncClient) -> None:

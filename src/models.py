@@ -414,10 +414,16 @@ class NormalizedPlayerData(ExtraAllowModel):
 
 
 class Match(ExtraAllowModel):
+    model_config = {"extra": "ignore"}
+
     match_id: int = Field(description="The ID number of the match assigned by Valve")
     radiant_win: bool = Field(description="Boolean indicating whether Radiant won the match")
     start_time: int = Field(description="The Unix timestamp at which the game started")
     duration: int = Field(description="Duration of the game in seconds")
-    party_size: int | None = Field(description="Size of the player's party")
+    party_size: int | None = Field(None, description="Size of the player's party")
+    overview: dict[str, str] | str | None = Field(
+        None,
+        description="Compact LLM-generated player overviews for historical context (player_id -> plain text)",
+    )
 
     data: list[PlayerData] | None = Field(None, description="List of players data in the match")
