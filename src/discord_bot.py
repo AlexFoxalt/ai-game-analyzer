@@ -39,14 +39,26 @@ class DiscordMessenger:
             self._is_ready = True
             self._ready_event.set()
 
+        async def _on_disconnect() -> None:
+            self._is_ready = False
+            self._ready_event.clear()
+            log.warning("Discord bot disconnected. Waiting for reconnect...")
+
         self._bot.on_ready = _on_ready
+        self._bot.on_disconnect = _on_disconnect
         await self._bot.start(self._token)
 
-    async def _get_default_text_channel(self) -> discord.TextChannel:
+    async def _wait_until_ready(self) -> None:
         if not self._bot:
             raise RuntimeError("Discord bot is not ready.")
         await self._ready_event.wait()
-        if not self._is_ready:
+        await self._bot.wait_until_ready()
+        if self._bot.is_closed():
+            raise RuntimeError("Discord bot connection is closed.")
+
+    async def _get_default_text_channel(self) -> discord.TextChannel:
+        await self._wait_until_ready()
+        if not self._bot:
             raise RuntimeError("Discord bot is not ready.")
 
         channel = self._bot.get_channel(self._channel_id)
@@ -57,10 +69,8 @@ class DiscordMessenger:
         return channel
 
     async def _get_voice_channel(self, channel_id: int) -> discord.VoiceChannel:
+        await self._wait_until_ready()
         if not self._bot:
-            raise RuntimeError("Discord bot is not ready.")
-        await self._ready_event.wait()
-        if not self._is_ready:
             raise RuntimeError("Discord bot is not ready.")
 
         channel = self._bot.get_channel(channel_id)
@@ -122,33 +132,42 @@ class DiscordMessenger:
         if not wav_path.exists():
             raise FileNotFoundError(f"Audio file not found: {wav_path}")
 
-        voice_channel = await self._get_voice_channel(voice_channel_id)
-        voice_client = voice_channel.guild.voice_client
-        if voice_client is None or not voice_client.is_connected():
-            voice_client = await voice_channel.connect()
-        elif voice_client.channel != voice_channel:
-            await voice_client.move_to(voice_channel)
+        for attempt in range(2):
+            voice_channel = await self._get_voice_channel(voice_channel_id)
+            voice_client = voice_channel.guild.voice_client
+            if voice_client is None or not voice_client.is_connected():
+                voice_client = await voice_channel.connect()
+            elif voice_client.channel != voice_channel:
+                await voice_client.move_to(voice_channel)
 
-        if voice_client.is_playing():
-            voice_client.stop()
+            if voice_client.is_playing():
+                voice_client.stop()
 
-        loop = asyncio.get_running_loop()
-        playback_done: asyncio.Future[None] = loop.create_future()
+            loop = asyncio.get_running_loop()
+            playback_done: asyncio.Future[None] = loop.create_future()
 
-        def _after_playback(error: Exception | None) -> None:
-            if playback_done.done():
+            def _after_playback(error: Exception | None) -> None:
+                if playback_done.done():
+                    return
+                if error is not None:
+                    loop.call_soon_threadsafe(playback_done.set_exception, error)
+                else:
+                    loop.call_soon_threadsafe(playback_done.set_result, None)
+
+            try:
+                voice_client.play(discord.FFmpegPCMAudio(str(wav_path)), after=_after_playback)
+                await playback_done
                 return
-            if error is not None:
-                loop.call_soon_threadsafe(playback_done.set_exception, error)
-            else:
-                loop.call_soon_threadsafe(playback_done.set_result, None)
-
-        try:
-            voice_client.play(discord.FFmpegPCMAudio(str(wav_path)), after=_after_playback)
-            await playback_done
-        finally:
-            if voice_client.is_connected():
-                await voice_client.disconnect(force=True)
+            except Exception as exc:
+                is_last_attempt = attempt == 1
+                is_transport_closing = "closing transport" in str(exc).lower()
+                if is_last_attempt or not is_transport_closing:
+                    raise
+                log.warning("Voice transport was closing, retrying playback once.")
+                await asyncio.sleep(2)
+            finally:
+                if voice_client.is_connected():
+                    await voice_client.disconnect(force=True)
 
     @asynccontextmanager
     async def typing_status(self):
