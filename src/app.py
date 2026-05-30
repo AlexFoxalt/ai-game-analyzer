@@ -8,7 +8,12 @@ from openai import AsyncOpenAI
 from scheduler.asyncio import Scheduler
 from scheduler.trigger import Monday
 
-from src.ai.reporting import generate_en_match_report, generate_match_overview, translate_match_report
+from src.ai.reporting import (
+    generate_en_match_report,
+    generate_match_overview,
+    generate_report_tts_audio,
+    translate_match_report,
+)
 from src.discord_bot import DiscordMessenger, create_discord_messenger
 from src.kb import refresh_kb_data as refresh_kb_data_files
 from src.logger import log
@@ -19,28 +24,15 @@ from src.storage import DataStorage
 from src.utils import (
     build_match_report_dir,
     load_player_config,
+    require_env,
     tracked_players_heroes_text,
 )
 
 PLAYER_ID, PLAYERS, PLAYER_ID_DISCORD_ID = load_player_config()
 AI_MODEL = "gpt-5.5"
-
-
-def _read_positive_int_env(name: str, default: int) -> int:
-    raw_value = os.getenv(name)
-    if raw_value is None or not raw_value.strip():
-        return default
-    try:
-        parsed = int(raw_value)
-        if parsed <= 0:
-            raise ValueError
-        return parsed
-    except ValueError:
-        log.warning(f"Invalid {name}='{raw_value}', fallback to {default}")
-        return default
-
-
-RECENT_MATCHES_CONTEXT_LIMIT = _read_positive_int_env("RECENT_MATCHES_CONTEXT_LIMIT", 5)
+OVERVIEW_MODEL = "gpt-5.4-mini"
+RECENT_MATCHES_CONTEXT_LIMIT = int(require_env("RECENT_MATCHES_CONTEXT_LIMIT"))
+VOICE_CHANNEL_ID = int(require_env("VOICE_CHANNEL_ID"))
 
 
 async def main(
@@ -190,13 +182,35 @@ async def main(
     except Exception as exc:
         log.warning(f"Failed to update Discord status message: {exc}")
 
+    report_wav_path = report_dir / "report.wav"
+    try:
+        report_wav_path = await generate_report_tts_audio(
+            ai=ai,
+            text=translated_text,
+            output_path=report_wav_path,
+        )
+        log.info(f"Voice report audio saved: {report_wav_path}")
+    except Exception as exc:
+        report_wav_path = None
+        log.warning(f"Failed to generate voice report for match {match.match_id}: {exc}")
+
+    if report_wav_path is not None:
+        try:
+            await discord_messenger.play_wav_in_voice_channel(
+                voice_channel_id=VOICE_CHANNEL_ID,
+                wav_path=report_wav_path,
+            )
+            log.info(f"Voice report playback completed: {report_wav_path}")
+        except Exception as exc:
+            log.warning(f"Failed to play voice report for match {match.match_id}: {exc}")
+
     log.info(f"Report saved: {markdown_path}")
     log.info(f"PDF saved: {pdf_path}")
     # post-process report
     try:
         overview = await generate_match_overview(
             ai=ai,
-            model=AI_MODEL,
+            model=OVERVIEW_MODEL,
             en_report=en_report,
             tracked_players=tracked_players_context,
         )

@@ -56,6 +56,20 @@ class DiscordMessenger:
             raise RuntimeError("Configured Discord channel is not a text channel.")
         return channel
 
+    async def _get_voice_channel(self, channel_id: int) -> discord.VoiceChannel:
+        if not self._bot:
+            raise RuntimeError("Discord bot is not ready.")
+        await self._ready_event.wait()
+        if not self._is_ready:
+            raise RuntimeError("Discord bot is not ready.")
+
+        channel = self._bot.get_channel(channel_id)
+        if channel is None:
+            channel = await self._bot.fetch_channel(channel_id)
+        if not isinstance(channel, discord.VoiceChannel):
+            raise RuntimeError(f"Configured Discord channel {channel_id} is not a voice channel.")
+        return channel
+
     async def build_mentions(self, identifiers: list[str]) -> str:
         channel = await self._get_default_text_channel()
         guild = channel.guild
@@ -103,6 +117,38 @@ class DiscordMessenger:
 
         if len(image_paths) > len(limited_paths):
             log.warning("Discord supports up to 10 attachments per message. Extra images were skipped.")
+
+    async def play_wav_in_voice_channel(self, voice_channel_id: int, wav_path: Path) -> None:
+        if not wav_path.exists():
+            raise FileNotFoundError(f"Audio file not found: {wav_path}")
+
+        voice_channel = await self._get_voice_channel(voice_channel_id)
+        voice_client = voice_channel.guild.voice_client
+        if voice_client is None or not voice_client.is_connected():
+            voice_client = await voice_channel.connect()
+        elif voice_client.channel != voice_channel:
+            await voice_client.move_to(voice_channel)
+
+        if voice_client.is_playing():
+            voice_client.stop()
+
+        loop = asyncio.get_running_loop()
+        playback_done: asyncio.Future[None] = loop.create_future()
+
+        def _after_playback(error: Exception | None) -> None:
+            if playback_done.done():
+                return
+            if error is not None:
+                loop.call_soon_threadsafe(playback_done.set_exception, error)
+            else:
+                loop.call_soon_threadsafe(playback_done.set_result, None)
+
+        try:
+            voice_client.play(discord.FFmpegPCMAudio(str(wav_path)), after=_after_playback)
+            await playback_done
+        finally:
+            if voice_client.is_connected():
+                await voice_client.disconnect(force=True)
 
     @asynccontextmanager
     async def typing_status(self):

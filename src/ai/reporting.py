@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Iterable, Sequence
+from pathlib import Path
 from typing import Any
 
 from langsmith import traceable
@@ -50,6 +51,7 @@ def build_dota_match_messages(
     normalized_recent_games_briefs = {str(player_id): brief for player_id, brief in (recent_games_briefs or {}).items()}
     selected_prompt_version = resolve_prompt_version(prompt_version) if prompt_version else _get_prompt_version()
     user_rules = get_user_rules(selected_prompt_version)
+    mvp_bullets_range = "1-2" if selected_prompt_version == "v2" else "2-4"
 
     user_prompt = f"""
 Analyze this Dota 2 match deeply.
@@ -85,10 +87,10 @@ For EACH matched friend ID, include:
 - 0 to 3 bullets
 
 ## MVP
-- Pick exactly one MVP (Most Valuable Player) from all players in this match and explain why in 2-4 bullets.
+- Pick exactly one MVP (Most Valuable Player) from all players in this match and explain why in {mvp_bullets_range} bullets.
 
 ## Shit player
-- Pick exactly one Shit player (opposite of MVP) from all players in this match and explain why in 2-4 bullets.
+- Pick exactly one Shit player (opposite of MVP) from all players in this match and explain why in {mvp_bullets_range} bullets.
 
 {user_rules}
 """.strip()
@@ -153,6 +155,31 @@ async def translate_match_report(
     text: str,
 ) -> str:
     return await translate_analysis_to_russian(ai=ai, model=model, text=text)
+
+
+@traceable(name="generate_report_tts_audio")
+async def generate_report_tts_audio(
+    ai: AsyncOpenAI,
+    text: str,
+    output_path: Path,
+    model: str = "gpt-4o-mini-tts",
+    voice: str = "echo",
+) -> Path:
+    # OpenAI TTS input is limited to 4096 chars.
+    tts_text = text.strip()
+    if len(tts_text) > 4096:
+        log.warning("TTS input is too long ({}), truncating to 4096 chars.", len(tts_text))
+        tts_text = tts_text[:4096]
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    async with ai.audio.speech.with_streaming_response.create(
+        model=model,
+        voice=voice,
+        input=tts_text,
+        response_format="wav",
+    ) as response:
+        await response.stream_to_file(output_path)
+    return output_path
 
 
 @traceable(name="generate_match_overview")
